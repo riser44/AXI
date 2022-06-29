@@ -9,13 +9,14 @@
 // specific language governing permissions and limitations under the License.
 //
 // Authors:
-// - Wolfgang Roenninger <wroennin@iis.ee.ethz.ch>
-// - Andreas Kurth <akurth@iis.ee.ethz.ch>
-// - Florian Zaruba <zarubaf@iis.ee.ethz.ch>
+// - Luca Colagrande <colluca@iis.ee.ethz.ch>
+// Based on:
+// - axi_xbar.sv
 
-// axi_xbar: Fully-connected AXI4+ATOP crossbar with an arbitrary number of slave and master ports.
+// axi_multicast_xbar: Multicast-enabled fully-connected AXI4+ATOP crossbar with an arbitrary number
+// of slave and master ports.
 // See `doc/axi_xbar.md` for the documentation, including the definition of parameters and ports.
-module axi_xbar
+module axi_mcast_xbar
 import cf_math_pkg::idx_width;
 #(
   parameter axi_pkg::xbar_cfg_t Cfg                                   = '0,
@@ -35,36 +36,20 @@ import cf_math_pkg::idx_width;
   parameter type mst_req_t                                            = logic,
   parameter type mst_resp_t                                           = logic,
   parameter type rule_t                                               = axi_pkg::xbar_rule_64_t
-`ifdef VCS
-  , localparam int unsigned MstPortsIdxWidth =
-      (Cfg.NoMstPorts == 32'd1) ? 32'd1 : unsigned'($clog2(Cfg.NoMstPorts))
-`endif
 ) (
-  input  logic                                                          clk_i,
-  input  logic                                                          rst_ni,
-  input  logic                                                          test_i,
-  input  slv_req_t  [Cfg.NoSlvPorts-1:0]                                slv_ports_req_i,
-  output slv_resp_t [Cfg.NoSlvPorts-1:0]                                slv_ports_resp_o,
-  output mst_req_t  [Cfg.NoMstPorts-1:0]                                mst_ports_req_o,
-  input  mst_resp_t [Cfg.NoMstPorts-1:0]                                mst_ports_resp_i,
-  input  rule_t     [Cfg.NoAddrRules-1:0]                               addr_map_i,
-  input  logic      [Cfg.NoSlvPorts-1:0]                                en_default_mst_port_i,
-`ifdef VCS
-  input  logic      [Cfg.NoSlvPorts-1:0][MstPortsIdxWidth-1:0]          default_mst_port_i
-`else
-  input  logic      [Cfg.NoSlvPorts-1:0][idx_width(Cfg.NoMstPorts)-1:0] default_mst_port_i
-`endif
+  input  logic                            clk_i,
+  input  logic                            rst_ni,
+  input  logic                            test_i,
+  input  slv_req_t  [Cfg.NoSlvPorts-1:0]  slv_ports_req_i,
+  output slv_resp_t [Cfg.NoSlvPorts-1:0]  slv_ports_resp_o,
+  output mst_req_t  [Cfg.NoMstPorts-1:0]  mst_ports_req_o,
+  input  mst_resp_t [Cfg.NoMstPorts-1:0]  mst_ports_resp_i,
+  input  rule_t     [Cfg.NoAddrRules-1:0] addr_map_i
 );
 
   typedef logic [Cfg.AxiAddrWidth-1:0]           addr_t;
   // to account for the decoding error slave
-`ifdef VCS
-  localparam int unsigned MstPortsIdxWidthOne =
-      (Cfg.NoMstPorts == 32'd1) ? 32'd1 : unsigned'($clog2(Cfg.NoMstPorts + 1));
-  typedef logic [MstPortsIdxWidthOne-1:0]           mst_port_idx_t;
-`else
-  typedef logic [idx_width(Cfg.NoMstPorts + 1)-1:0] mst_port_idx_t;
-`endif
+  typedef logic [(Cfg.NoMstPorts+1)-1:0] mst_port_mask_t;
 
   // signals from the axi_demuxes, one index more for decode error
   slv_req_t  [Cfg.NoSlvPorts-1:0][Cfg.NoMstPorts:0]  slv_reqs;
@@ -78,16 +63,12 @@ import cf_math_pkg::idx_width;
   slv_resp_t [Cfg.NoMstPorts-1:0][Cfg.NoSlvPorts-1:0] mst_resps;
 
   for (genvar i = 0; i < Cfg.NoSlvPorts; i++) begin : gen_slv_port_demux
-`ifdef VCS
-    logic [MstPortsIdxWidth-1:0]          dec_aw,        dec_ar;
-`else
-    logic [idx_width(Cfg.NoMstPorts)-1:0] dec_aw,        dec_ar;
-`endif
-    mst_port_idx_t                        slv_aw_select, slv_ar_select;
-    logic                                 dec_aw_valid,  dec_aw_error;
-    logic                                 dec_ar_valid,  dec_ar_error;
+    logic [Cfg.NoMstPorts-1:0] dec_aw,        dec_ar;
+    mst_port_mask_t            slv_aw_select, slv_ar_select;
+    logic                      dec_aw_valid,  dec_aw_error;
+    logic                      dec_ar_valid,  dec_ar_error;
 
-    addr_decode #(
+    multiaddr_decode #(
       .NoIndices  ( Cfg.NoMstPorts  ),
       .NoRules    ( Cfg.NoAddrRules ),
       .addr_t     ( addr_t          ),
@@ -95,14 +76,12 @@ import cf_math_pkg::idx_width;
     ) i_axi_aw_decode (
       .addr_i           ( slv_ports_req_i[i].aw.addr ),
       .addr_map_i       ( addr_map_i                 ),
-      .idx_o            ( dec_aw                     ),
+      .mask_o           ( dec_aw                     ),
       .dec_valid_o      ( dec_aw_valid               ),
-      .dec_error_o      ( dec_aw_error               ),
-      .en_default_idx_i ( en_default_mst_port_i[i]   ),
-      .default_idx_i    ( default_mst_port_i[i]      )
+      .dec_error_o      ( dec_aw_error               )
     );
 
-    addr_decode #(
+    multiaddr_decode #(
       .NoIndices  ( Cfg.NoMstPorts  ),
       .addr_t     ( addr_t          ),
       .NoRules    ( Cfg.NoAddrRules ),
@@ -110,47 +89,18 @@ import cf_math_pkg::idx_width;
     ) i_axi_ar_decode (
       .addr_i           ( slv_ports_req_i[i].ar.addr ),
       .addr_map_i       ( addr_map_i                 ),
-      .idx_o            ( dec_ar                     ),
+      .mask_o           ( dec_ar                     ),
       .dec_valid_o      ( dec_ar_valid               ),
-      .dec_error_o      ( dec_ar_error               ),
-      .en_default_idx_i ( en_default_mst_port_i[i]   ),
-      .default_idx_i    ( default_mst_port_i[i]      )
+      .dec_error_o      ( dec_ar_error               )
     );
 
     assign slv_aw_select = (dec_aw_error) ?
-        mst_port_idx_t'(Cfg.NoMstPorts) : mst_port_idx_t'(dec_aw);
+        {1'b1, {Cfg.NoMstPorts{1'b0}}} : {1'b0, dec_aw};
     assign slv_ar_select = (dec_ar_error) ?
-        mst_port_idx_t'(Cfg.NoMstPorts) : mst_port_idx_t'(dec_ar);
+        {1'b1, {Cfg.NoMstPorts{1'b0}}} : {1'b0, dec_ar};
 
-    // make sure that the default slave does not get changed, if there is an unserved Ax
-    // pragma translate_off
-    `ifndef VERILATOR
-    `ifndef XSIM
-    default disable iff (~rst_ni);
-    default_aw_mst_port_en: assert property(
-      @(posedge clk_i) (slv_ports_req_i[i].aw_valid && !slv_ports_resp_o[i].aw_ready)
-          |=> $stable(en_default_mst_port_i[i]))
-        else $fatal (1, $sformatf("It is not allowed to change the default mst port\
-                                   enable, when there is an unserved Aw beat. Slave Port: %0d", i));
-    default_aw_mst_port: assert property(
-      @(posedge clk_i) (slv_ports_req_i[i].aw_valid && !slv_ports_resp_o[i].aw_ready)
-          |=> $stable(default_mst_port_i[i]))
-        else $fatal (1, $sformatf("It is not allowed to change the default mst port\
-                                   when there is an unserved Aw beat. Slave Port: %0d", i));
-    default_ar_mst_port_en: assert property(
-      @(posedge clk_i) (slv_ports_req_i[i].ar_valid && !slv_ports_resp_o[i].ar_ready)
-          |=> $stable(en_default_mst_port_i[i]))
-        else $fatal (1, $sformatf("It is not allowed to change the enable, when\
-                                   there is an unserved Ar beat. Slave Port: %0d", i));
-    default_ar_mst_port: assert property(
-      @(posedge clk_i) (slv_ports_req_i[i].ar_valid && !slv_ports_resp_o[i].ar_ready)
-          |=> $stable(default_mst_port_i[i]))
-        else $fatal (1, $sformatf("It is not allowed to change the default mst port\
-                                   when there is an unserved Ar beat. Slave Port: %0d", i));
-    `endif
-    `endif
-    // pragma translate_on
-    axi_demux #(
+
+    axi_mcast_demux #(
       .AxiIdWidth     ( Cfg.AxiIdWidthSlvPorts ),  // ID Width
       .AtopSupport    ( ATOPs                  ),
       .aw_chan_t      ( slv_aw_chan_t          ),  // AW Channel Type
@@ -280,7 +230,7 @@ endmodule
 `include "axi/assign.svh"
 `include "axi/typedef.svh"
 
-module axi_xbar_intf
+module axi_mcast_xbar_intf
 import cf_math_pkg::idx_width;
 #(
   parameter int unsigned AXI_USER_WIDTH =  0,
@@ -288,23 +238,13 @@ import cf_math_pkg::idx_width;
   parameter bit ATOPS                   = 1'b1,
   parameter bit [Cfg.NoSlvPorts-1:0][Cfg.NoMstPorts-1:0] CONNECTIVITY = '1,
   parameter type rule_t                 = axi_pkg::xbar_rule_64_t
-`ifdef VCS
-  , localparam int unsigned MstPortsIdxWidth =
-        (Cfg.NoMstPorts == 32'd1) ? 32'd1 : unsigned'($clog2(Cfg.NoMstPorts))
-`endif
 ) (
   input  logic                                                      clk_i,
   input  logic                                                      rst_ni,
   input  logic                                                      test_i,
   AXI_BUS.Slave                                                     slv_ports [Cfg.NoSlvPorts-1:0],
   AXI_BUS.Master                                                    mst_ports [Cfg.NoMstPorts-1:0],
-  input  rule_t [Cfg.NoAddrRules-1:0]                               addr_map_i,
-  input  logic  [Cfg.NoSlvPorts-1:0]                                en_default_mst_port_i,
-`ifdef VCS
-  input  logic  [Cfg.NoSlvPorts-1:0][MstPortsIdxWidth-1:0]          default_mst_port_i
-`else
-  input  logic  [Cfg.NoSlvPorts-1:0][idx_width(Cfg.NoMstPorts)-1:0] default_mst_port_i
-`endif
+  input  rule_t [Cfg.NoAddrRules-1:0]                               addr_map_i
 );
 
   localparam int unsigned AxiIdWidthMstPorts = Cfg.AxiIdWidthSlvPorts + $clog2(Cfg.NoSlvPorts);
@@ -345,7 +285,7 @@ import cf_math_pkg::idx_width;
     `AXI_ASSIGN_FROM_RESP(slv_ports[i], slv_resps[i])
   end
 
-  axi_xbar #(
+  axi_mcast_xbar #(
     .Cfg  (Cfg),
     .ATOPs          ( ATOPS         ),
     .Connectivity   ( CONNECTIVITY  ),
@@ -371,9 +311,7 @@ import cf_math_pkg::idx_width;
     .slv_ports_resp_o (slv_resps),
     .mst_ports_req_o  (mst_reqs ),
     .mst_ports_resp_i (mst_resps),
-    .addr_map_i,
-    .en_default_mst_port_i,
-    .default_mst_port_i
+    .addr_map_i
   );
 
 endmodule
