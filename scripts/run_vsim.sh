@@ -160,22 +160,38 @@ exec_test() {
             done
             ;;
         axi_xbar)
-            for Multicast in 0 1; do
-                for NumMst in 1 6; do
-                    for NumSlv in 1 8; do
-                        for Atop in 0 1; do
-                            for Exclusive in 0 1; do
-                                for UniqueIds in 0 1; do
-                                    call_vsim tb_axi_xbar -gTbMulticast=$Multicast -gTbNumMst=$NumMst -gTbNumSlv=$NumSlv \
-                                            -gTbEnAtop=$Atop -gTbEnExcl=$Exclusive \
-                                            -gTbUniqueIds=$UniqueIds
-                                done
+            for NumMst in 1 6; do
+                for NumSlv in 1 8; do
+                    for Atop in 0 1; do
+                        for Exclusive in 0 1; do
+                            for UniqueIds in 0 1; do
+                                call_vsim tb_axi_xbar -gTbNumMst=$NumMst -gTbNumSlv=$NumSlv \
+                                        -gTbEnAtop=$Atop -gTbEnExcl=$Exclusive \
+                                        -gTbUniqueIds=$UniqueIds
                             done
                         done
                     done
                 done
             done
             ;;
+        axi_mcast_xbar)
+            for NumMst in 1 6; do
+                for NumSlv in 1 8; do
+                    # for Atop in 0 1; do
+                    for Atop in 0; do
+                        # for Exclusive in 0 1; do
+                        for Exclusive in 0; do
+                            for UniqueIds in 0 1; do
+                                call_vsim tb_axi_mcast_xbar -gTbNumMst=$NumMst -gTbNumSlv=$NumSlv \
+                                        -gTbEnAtop=$Atop -gTbEnExcl=$Exclusive \
+                                        -gTbUniqueIds=$UniqueIds
+                            done
+                        done
+                    done
+                done
+            done
+            ;;
+
         *)
             call_vsim tb_$1 -t 1ns -coverage -voptargs="+acc +cover=bcesfx"
             ;;

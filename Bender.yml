@@ -8,7 +8,7 @@ package:
     - "Wolfgang Roenninger <wroennin@ethz.ch>"
 
 dependencies:
-  common_cells: { git: "https://github.com/pulp-platform/common_cells.git", rev: "6a2ccec070786c333809871a09bea84cd50dcce8" }
+  common_cells: { git: "https://github.com/pulp-platform/common_cells.git", rev: "c051072d2819d47df8120d8e499856c287033234" }
   common_verification: { git: "https://github.com/pulp-platform/common_verification.git", version: 0.2.0 }
 
 export_include_dirs:
@@ -78,6 +78,7 @@ sources:
       # Level 0
       - test/tb_axi_dw_pkg.sv
       - test/tb_axi_xbar_pkg.sv
+      - test/tb_axi_mcast_xbar_pkg.sv
       # Level 1
       - test/tb_axi_addr_test.sv
       - test/tb_axi_atop_filter.sv
@@ -97,3 +98,4 @@ sources:
       - test/tb_axi_sim_mem.sv
       - test/tb_axi_to_axi_lite.sv
       - test/tb_axi_xbar.sv
+      - test/tb_axi_mcast_xbar.sv

@@ -1,4 +1,4 @@
-// Copyright (c) 2019 ETH Zurich and University of Bologna.
+// Copyright (c) 2022 ETH Zurich and University of Bologna.
 // Copyright and related rights are licensed under the Solderpad Hardware
 // License, Version 0.51 (the "License"); you may not use this file except in
 // compliance with the License.  You may obtain a copy of the License at
@@ -9,8 +9,9 @@
 // specific language governing permissions and limitations under the License.
 //
 // Authors:
-// - Florian Zaruba <zarubaf@iis.ee.ethz.ch>
-// - Andreas Kurth <akurth@iis.ee.ethz.ch>
+// - Luca Colagrande <colluca@iis.ee.ethz.ch>
+// Based on:
+// - tb_axi_xbar.sv
 
 // Directed Random Verification Testbench for `axi_xbar`:  The crossbar is instantiated with
 // a number of random axi master and slave modules.  Each random master executes a fixed number of
@@ -22,7 +23,7 @@
 `include "axi/typedef.svh"
 `include "axi/assign.svh"
 
-module tb_axi_xbar #(
+module tb_axi_mcast_xbar #(
   parameter bit TbEnAtop = 1'b1,            // enable atomic operations (ATOPs)
   parameter bit TbEnExcl = 1'b0,            // enable exclusive accesses
   parameter bit TbUniqueIds = 1'b0,         // restrict to only unique IDs
@@ -44,7 +45,7 @@ module tb_axi_xbar #(
   localparam int unsigned AxiAddrWidth      =  32;    // Axi Address Width
   localparam int unsigned AxiDataWidth      =  64;    // Axi Data Width
   localparam int unsigned AxiStrbWidth      =  AxiDataWidth / 8;
-  localparam int unsigned AxiUserWidth      =  5;
+  localparam int unsigned AxiUserWidth      =  AxiAddrWidth;
   // in the bench can change this variables which are set here freely
   localparam axi_pkg::xbar_cfg_t xbar_cfg = '{
     NoSlvPorts:         TbNumMst,
@@ -58,12 +59,15 @@ module tb_axi_xbar #(
     UniqueIds:          TbUniqueIds,
     AxiAddrWidth:       AxiAddrWidth,
     AxiDataWidth:       AxiDataWidth,
-    NoAddrRules:        8
+    NoAddrRules:        TbNumSlv
   };
   typedef logic [AxiIdWidthMasters-1:0] id_mst_t;
   typedef logic [AxiIdWidthSlaves-1:0]  id_slv_t;
   typedef logic [AxiAddrWidth-1:0]      addr_t;
-  typedef axi_pkg::xbar_rule_32_t       rule_t; // Has to be the same width as axi addr
+  typedef struct packed {
+    addr_t addr;
+    addr_t mask;
+  } rule_t;
   typedef logic [AxiDataWidth-1:0]      data_t;
   typedef logic [AxiStrbWidth-1:0]      strb_t;
   typedef logic [AxiUserWidth-1:0]      user_t;
@@ -84,42 +88,52 @@ module tb_axi_xbar #(
   `AXI_TYPEDEF_REQ_T(slv_req_t, aw_chan_slv_t, w_chan_t, ar_chan_slv_t)
   `AXI_TYPEDEF_RESP_T(slv_resp_t, b_chan_slv_t, r_chan_slv_t)
 
-  localparam rule_t [xbar_cfg.NoAddrRules-1:0] AddrMap = '{
-    '{idx: 32'd7 % TbNumSlv, start_addr: 32'h0001_0000, end_addr: 32'h0001_1000},
-    '{idx: 32'd6 % TbNumSlv, start_addr: 32'h0000_9000, end_addr: 32'h0001_0000},
-    '{idx: 32'd5 % TbNumSlv, start_addr: 32'h0000_8000, end_addr: 32'h0000_9000},
-    '{idx: 32'd4 % TbNumSlv, start_addr: 32'h0000_7000, end_addr: 32'h0000_8000},
-    '{idx: 32'd3 % TbNumSlv, start_addr: 32'h0000_6300, end_addr: 32'h0000_7000},
-    '{idx: 32'd2 % TbNumSlv, start_addr: 32'h0000_4000, end_addr: 32'h0000_6300},
-    '{idx: 32'd1 % TbNumSlv, start_addr: 32'h0000_3000, end_addr: 32'h0000_4000},
-    '{idx: 32'd0 % TbNumSlv, start_addr: 32'h0000_0000, end_addr: 32'h0000_3000}
+  localparam rule_t [15:0] __AddrMap = '{
+    '{addr: 32'h0001_E000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_C000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_A000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_8000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_6000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_4000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_2000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_0000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_E000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_C000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_A000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_8000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_6000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_4000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_2000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_0000, mask: 32'h0000_1FFF}
   };
+  localparam rule_t [xbar_cfg.NoAddrRules-1:0] AddrMap = __AddrMap[xbar_cfg.NoAddrRules-1:0];
 
   typedef axi_test::axi_rand_master #(
     // AXI interface parameters
-    .AW ( AxiAddrWidth       ),
-    .DW ( AxiDataWidth       ),
-    .IW ( AxiIdWidthMasters  ),
-    .UW ( AxiUserWidth       ),
+    .AW(AxiAddrWidth),
+    .DW(AxiDataWidth),
+    .IW(AxiIdWidthMasters),
+    .UW(AxiUserWidth),
     // Stimuli application and test time
-    .TA ( ApplTime           ),
-    .TT ( TestTime           ),
+    .TA(ApplTime),
+    .TT(TestTime),
     // Maximum number of read and write transactions in flight
-    .MAX_READ_TXNS  ( 20     ),
-    .MAX_WRITE_TXNS ( 20     ),
-    .AXI_EXCLS      ( TbEnExcl ),
-    .AXI_ATOPS      ( TbEnAtop ),
-    .UNIQUE_IDS     ( TbUniqueIds )
+    .MAX_READ_TXNS   (20),
+    .MAX_WRITE_TXNS  (20),
+    .AXI_EXCLS       (TbEnExcl),
+    .AXI_ATOPS       (TbEnAtop),
+    .UNIQUE_IDS      (TbUniqueIds),
+    .ENABLE_MULTICAST(1)
   ) axi_rand_master_t;
   typedef axi_test::axi_rand_slave #(
     // AXI interface parameters
-    .AW ( AxiAddrWidth     ),
-    .DW ( AxiDataWidth     ),
-    .IW ( AxiIdWidthSlaves ),
-    .UW ( AxiUserWidth     ),
+    .AW(AxiAddrWidth),
+    .DW(AxiDataWidth),
+    .IW(AxiIdWidthSlaves),
+    .UW(AxiUserWidth),
     // Stimuli application and test time
-    .TA ( ApplTime         ),
-    .TT ( TestTime         )
+    .TA(ApplTime),
+    .TT(TestTime)
   ) axi_rand_slave_t;
 
   // -------------
@@ -197,9 +211,11 @@ module tb_axi_xbar #(
     initial begin
       axi_rand_master[i] = new( master_dv[i] );
       end_of_sim[i] <= 1'b0;
-      axi_rand_master[i].add_memory_region(AddrMap[0].start_addr,
-                                      AddrMap[xbar_cfg.NoAddrRules-1].end_addr,
-                                      axi_pkg::DEVICE_NONBUFFERABLE);
+      // TODO colluca
+      axi_rand_master[i].add_memory_region(0,
+                                           xbar_cfg.NoAddrRules * 32'h0000_2000,
+                                           axi_pkg::DEVICE_NONBUFFERABLE);
+      axi_rand_master[i].set_multicast_probability(0);
       axi_rand_master[i].reset();
       @(posedge rst_n);
       axi_rand_master[i].run(NoReads, NoWrites);
@@ -218,16 +234,16 @@ module tb_axi_xbar #(
   end
 
   initial begin : proc_monitor
-    static tb_axi_xbar_pkg::axi_xbar_monitor #(
+    static tb_axi_mcast_xbar_pkg::axi_mcast_xbar_monitor #(
       .AxiAddrWidth      ( AxiAddrWidth         ),
       .AxiDataWidth      ( AxiDataWidth         ),
       .AxiIdWidthMasters ( AxiIdWidthMasters    ),
       .AxiIdWidthSlaves  ( AxiIdWidthSlaves     ),
       .AxiUserWidth      ( AxiUserWidth         ),
-      .NoMasters         ( TbNumMst            ),
+      .NoMasters         ( TbNumMst             ),
       .NoSlaves          ( TbNumSlv             ),
       .NoAddrRules       ( xbar_cfg.NoAddrRules ),
-      .rule_t            ( rule_t               ),
+      .rule_t            ( rule_t         ),
       .AddrMap           ( AddrMap              ),
       .TimeTest          ( TestTime             )
     ) monitor = new( master_monitor_dv, slave_monitor_dv );
@@ -258,7 +274,8 @@ module tb_axi_xbar #(
   //-----------------------------------
   // DUT
   //-----------------------------------
-  axi_xbar_intf #(
+
+  axi_mcast_xbar_intf #(
     .AXI_USER_WIDTH ( AxiUserWidth  ),
     .Cfg            ( xbar_cfg      ),
     .rule_t         ( rule_t        )
@@ -268,9 +285,7 @@ module tb_axi_xbar #(
     .test_i                 ( 1'b0    ),
     .slv_ports              ( master  ),
     .mst_ports              ( slave   ),
-    .addr_map_i             ( AddrMap ),
-    .en_default_mst_port_i  ( '0      ),
-    .default_mst_port_i     ( '0      )
+    .addr_map_i             ( AddrMap )
   );
 
   // logger for master modules
@@ -282,7 +297,8 @@ module tb_axi_xbar #(
       .w_chan_t  (  w_chan_t     ), // axi  W type
       .b_chan_t  (  b_chan_mst_t ), // axi  B type
       .ar_chan_t ( ar_chan_mst_t ), // axi AR type
-      .r_chan_t  (  r_chan_mst_t )  // axi  R type
+      .r_chan_t  (  r_chan_mst_t ), // axi  R type
+      .ENABLE_MULTICAST(1)
     ) i_mst_channel_logger (
       .clk_i      ( clk         ),    // Clock
       .rst_ni     ( rst_n       ),    // Asynchronous reset active low, when `1'b0` no sampling
