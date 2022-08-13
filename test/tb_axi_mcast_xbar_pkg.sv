@@ -196,8 +196,9 @@ package tb_axi_mcast_xbar_pkg;
         decerr = num_slaves_matched == 0;
         if (num_slaves_matched > 1 || decerr) begin
           $display("MULTICAST occur: %b, %b", aw_addr, aw_mcast);
+          $display("Matched %0d slaves", num_slaves_matched);
           for (int j = 0; j < NoSlaves; j++) begin
-            $display("Slave %0d AddrMap: %b, %b", j, AddrMap[j].addr, AddrMap[j].mask);
+            $display("  Slave %0d AddrMap: %b, %b", j, AddrMap[j].addr, AddrMap[j].mask);
           end
         end
 
@@ -208,7 +209,7 @@ package tb_axi_mcast_xbar_pkg;
               $time, i, masters_axi[i].aw_id);
         end else begin
           exp_aw_id = {idx_mst_t'(i), masters_axi[i].aw_id};
-          for (int j = 0; j < to_slave_idx.size(); j++) begin
+          for (int j = 0; j < num_slaves_matched; j++) begin
             automatic idx_slv_t slave_idx = to_slave_idx.pop_front(); 
             // $display("Test exp aw_id: %b",exp_aw_id);
             exp_aw = '{slv_axi_id:   exp_aw_id,

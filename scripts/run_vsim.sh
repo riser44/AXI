@@ -181,7 +181,8 @@ exec_test() {
                     for Atop in 0; do
                         # for Exclusive in 0 1; do
                         for Exclusive in 0; do
-                            for UniqueIds in 0 1; do
+                            # for UniqueIds in 0 1; do
+                            for UniqueIds in 0; do
                                 call_vsim tb_axi_mcast_xbar -gTbNumMst=$NumMst -gTbNumSlv=$NumSlv \
                                         -gTbEnAtop=$Atop -gTbEnExcl=$Exclusive \
                                         -gTbUniqueIds=$UniqueIds

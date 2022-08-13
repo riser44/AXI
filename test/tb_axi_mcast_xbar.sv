@@ -215,7 +215,7 @@ module tb_axi_mcast_xbar #(
       axi_rand_master[i].add_memory_region(0,
                                            xbar_cfg.NoAddrRules * 32'h0000_2000,
                                            axi_pkg::DEVICE_NONBUFFERABLE);
-      axi_rand_master[i].set_multicast_probability(0);
+      axi_rand_master[i].set_multicast_probability(1);
       axi_rand_master[i].reset();
       @(posedge rst_n);
       axi_rand_master[i].run(NoReads, NoWrites);

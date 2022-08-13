@@ -671,12 +671,11 @@ module synth_axi_xbar #(
   parameter int unsigned AxiAddrWidth      =  32,    // Axi Address Width
   parameter int unsigned AxiDataWidth      =  32,    // Axi Data Width
   parameter int unsigned AxiStrbWidth      =  AxiDataWidth / 8,
-  parameter int unsigned AxiUserWidth      =  5,
+  parameter int unsigned AxiUserWidth      =  32,
   // axi types
   parameter type id_mst_t                  = logic [AxiIdWidthSlaves-1:0],
   parameter type id_slv_t                  = logic [AxiIdWidthMasters-1:0],
   parameter type addr_t                    = logic [AxiAddrWidth-1:0],
-  parameter type rule_t                    = axi_pkg::xbar_rule_32_t, // Has to be the same width as axi addr
   parameter type data_t                    = logic [AxiDataWidth-1:0],
   parameter type strb_t                    = logic [AxiStrbWidth-1:0],
   parameter type user_t                    = logic [AxiUserWidth-1:0]
@@ -831,8 +830,15 @@ module synth_axi_xbar #(
     NoAddrRules:        NoSlvMst
   };
 
-  `AXI_TYPEDEF_AW_CHAN_T(mst_aw_chan_t, addr_t, id_mst_t, user_t)
-  `AXI_TYPEDEF_AW_CHAN_T(slv_aw_chan_t, addr_t, id_slv_t, user_t)
+  typedef struct packed {
+    logic [AxiUserWidth-1:0] mcast;
+  } aw_user_t;
+
+  typedef axi_pkg::xbar_mask_rule_32_t mcast_rule_t; // Has to be the same width as axi addr
+  typedef axi_pkg::xbar_rule_32_t      rule_t; // Has to be the same width as axi addr
+
+  `AXI_TYPEDEF_AW_CHAN_T(mst_aw_chan_t, addr_t, id_mst_t, aw_user_t)
+  `AXI_TYPEDEF_AW_CHAN_T(slv_aw_chan_t, addr_t, id_slv_t, aw_user_t)
   `AXI_TYPEDEF_W_CHAN_T(w_chan_t, data_t, strb_t, user_t)
   `AXI_TYPEDEF_B_CHAN_T(mst_b_chan_t, id_mst_t, user_t)
   `AXI_TYPEDEF_B_CHAN_T(slv_b_chan_t, id_slv_t, user_t)
@@ -848,6 +854,24 @@ module synth_axi_xbar #(
   `AXI_TYPEDEF_RESP_T(slv_resp_t, slv_b_chan_t, slv_r_chan_t)
 
   // TODO colluca: Can the next code block become a one-liner?
+  localparam mcast_rule_t [15:0] mcast_full_addr_map = '{
+    '{addr: 32'h0001_E000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_C000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_A000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_8000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_6000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_4000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_2000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0001_0000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_E000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_C000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_A000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_8000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_6000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_4000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_2000, mask: 32'h0000_1FFF},
+    '{addr: 32'h0000_0000, mask: 32'h0000_1FFF}
+  };
   localparam rule_t [15:0] full_addr_map = {
     rule_t'{idx: 32'd15, start_addr: 32'h0001_E000, end_addr: 32'h0002_0000},
     rule_t'{idx: 32'd14, start_addr: 32'h0001_C000, end_addr: 32'h0001_E000},
@@ -866,6 +890,7 @@ module synth_axi_xbar #(
     rule_t'{idx: 32'd1, start_addr: 32'h0000_2000, end_addr: 32'h0000_4000},
     rule_t'{idx: 32'd0, start_addr: 32'h0000_0000, end_addr: 32'h0000_2000}
   };
+  localparam mcast_rule_t [xbar_cfg.NoAddrRules-1:0] mcast_addr_map = mcast_full_addr_map[xbar_cfg.NoAddrRules-1:0];
   localparam rule_t [xbar_cfg.NoAddrRules-1:0] addr_map = full_addr_map[xbar_cfg.NoAddrRules-1:0];
 
   slv_req_t  [NoSlvMst-1:0] slv_reqs;
@@ -992,7 +1017,7 @@ module synth_axi_xbar #(
       .slv_resp_t   (slv_resp_t),
       .mst_req_t    (mst_req_t),
       .mst_resp_t   (mst_resp_t),
-      .rule_t       (rule_t)
+      .rule_t       (mcast_rule_t)
     ) i_xbar_dut (
       .clk_i                (clk_i),
       .rst_ni               (rst_ni),
@@ -1001,7 +1026,7 @@ module synth_axi_xbar #(
       .slv_ports_resp_o     (slv_resps),
       .mst_ports_req_o      (mst_reqs),
       .mst_ports_resp_i     (mst_resps),
-      .addr_map_i           (addr_map      )
+      .addr_map_i           (mcast_addr_map)
     );
   end else begin : g_no_multicast
     axi_xbar #(
