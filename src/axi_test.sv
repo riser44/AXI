@@ -1364,7 +1364,6 @@ package axi_test;
           end
           r_beat.r_resp = axi_pkg::RESP_OKAY;
         end
-
         r_beat.r_id = ar_beat.ax_id;
         if (RAND_RESP && !ar_beat.ax_atop[axi_pkg::ATOP_R_RESP])
           r_beat.r_resp[1] = $random();
@@ -2002,8 +2001,6 @@ package axi_test;
         b_beat  = b_sample[id].pop_front();
         if (check_en[BRespCheck]) begin
           assert (b_beat.b_id   == id);
-          assert (b_beat.b_resp == axi_pkg::RESP_OKAY) else
-              $warning("Behavior for b_resp != axi_pkg::RESP_OKAY not modeled.");
         end
         // pop all accessed memory locations by this beat
         for (int unsigned i = 0; i <= aw_beat.ax_len; i++) begin
@@ -2011,7 +2008,11 @@ package axi_test;
               axi_pkg::beat_addr(aw_beat.ax_addr, aw_beat.ax_size, aw_beat.ax_len, aw_beat.ax_burst,
                   i), BUS_SIZE);
           for (int j = 0; j < axi_pkg::num_bytes(BUS_SIZE); j++) begin
-            memory_q[bus_address+j].delete(0);
+            if (b_beat.b_resp inside {axi_pkg::RESP_OKAY, axi_pkg::RESP_EXOKAY}) begin
+              memory_q[bus_address+j].delete(0);
+            end else begin
+              memory_q[bus_address+j].delete(memory_q[bus_address+j].size() - 1);
+            end
           end
         end
       end
@@ -2045,22 +2046,29 @@ package axi_test;
             end
           end
           // Assert that the correct data is read.
-          if (this.check_en[ReadCheck]) begin
+          if (this.check_en[ReadCheck] &&
+              (r_beat.r_resp inside {axi_pkg::RESP_OKAY, axi_pkg::RESP_EXOKAY})) begin
             for (int unsigned j = 0; j < axi_pkg::num_bytes(ar_beat.ax_size); j++) begin
               idx_data  = 8*BUS_SIZE'(beat_address+j);
               act_data  = r_beat.r_data[idx_data+:8];
               exp_data  = this.memory_q[beat_address+j];
-              tst_data  = exp_data.find with (item === 8'hxx || item === act_data);
-              assert (tst_data.size() > 0) else begin
-                $warning("Unexpected RData ID: %0h Addr: %0h Byte Idx: %0h Exp Data : %0h Data: %h",
-                r_beat.r_id, beat_address+j, idx_data, exp_data, act_data);
+              if (exp_data.size() > 0) begin
+                tst_data  = exp_data.find with (item === 8'hxx || item === act_data);
+                assert (tst_data.size() > 0) else begin
+                  $warning("Unexpected RData ID: %0h \n \
+                            Addr:     %h \n \
+                            Byte Idx: %h \n \
+                            Exp Data: %h \n \
+                            Act Data: %h \n \
+                            BeatData: %h",
+                  r_beat.r_id, beat_address+j, idx_data, exp_data, act_data, r_beat.r_data);
+                end
               end
             end
           end
         end
         if (this.check_en[RRespCheck]) begin
           assert (r_beat.r_id   == id);
-          assert (r_beat.r_resp == axi_pkg::RESP_OKAY);
           assert (r_beat.r_last);
         end
       end
@@ -2245,6 +2253,40 @@ package axi_test;
         assert(this.b_queue[i].size()   == 0);
       end
     endtask : reset
+
+    /// Check that the byte in memory_q is the same as check_data.
+    task automatic check_byte(axi_addr_t check_addr, byte_t check_data);
+      assert(this.memory_q[check_addr][0] === check_data) else
+        $warning("Byte at ADDR: %h does not match: memory_q: %h check_data: %h",
+            check_addr, this.memory_q[check_addr][0], check_data);
+    endtask : check_byte
+
+    /// Clear a byte from memoy. Can be used to partially delete mem space.
+    task clear_byte(axi_addr_t clear_addr);
+      if (this.memory_q.exists(clear_addr)) begin
+        this.memory_q.delete(clear_addr);
+      end
+    endtask : clear_byte
+
+    /// Clear a memory range.
+    /// The end address alo gets cleared.
+    task automatic clear_range(axi_addr_t clear_start_addr, clear_end_addr);
+      axi_addr_t curr_addr = clear_start_addr;
+      while (curr_addr <= clear_end_addr) begin
+        this.clear_byte(curr_addr);
+        curr_addr++;
+      end
+    endtask : clear_range
+
+    /// Get a byte from the modeled memory.
+    task automatic get_byte(input axi_addr_t byte_addr, output byte_t byte_data);
+      if (this.memory_q.exists(byte_addr)) begin
+        byte_data = this.memory_q[byte_addr][0];
+      end else begin
+        byte_data = 8'hxx;
+      end
+    endtask : get_byte
+
   endclass : axi_scoreboard
 
 endpackage
