@@ -137,16 +137,18 @@ module axi_to_mem_banked #(
   // Fixed select `axi_demux` to split reads and writes to the two `axi_to_mem`
   axi_demux #(
     .AxiIdWidth  ( AxiIdWidth    ),
+    .AtopSupport ( 1'b1          ),
     .aw_chan_t   ( axi_aw_chan_t ),
     .w_chan_t    ( axi_w_chan_t  ),
     .b_chan_t    ( axi_b_chan_t  ),
     .ar_chan_t   ( axi_ar_chan_t ),
     .r_chan_t    ( axi_r_chan_t  ),
-    .req_t       ( axi_req_t     ),
-    .resp_t      ( axi_resp_t    ),
+    .axi_req_t   ( axi_req_t     ),
+    .axi_resp_t  ( axi_resp_t    ),
     .NoMstPorts  ( 32'd2         ),
     .MaxTrans    ( 32'd4         ), // allow multiple Ax vectors to not starve W channel
     .AxiLookBits ( 32'd1         ), // select is fixed, do not need it
+    .UniqueIds   ( 1'b0          ),
     .FallThrough ( 1'b1          ),
     .SpillAw     ( 1'b1          ),
     .SpillW      ( 1'b1          ),
