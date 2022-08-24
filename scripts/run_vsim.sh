@@ -188,7 +188,9 @@ exec_test() {
                                     -gTbNumWords=$NUM_WORDS \
                                     -gTbNumBanks=$ACT_BANKS \
                                     -gTbMemDataWidth=$MEM_DATA_WIDTH \
-                                    -gTbMemLatency=$MEM_LAT
+                                    -gTbMemLatency=$MEM_LAT \
+                                    -gTbNumWrites=4000 \
+                                    -gTbNumReads=4000
                             done
                         done
                     done
